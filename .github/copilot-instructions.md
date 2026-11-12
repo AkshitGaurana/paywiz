@@ -1,6 +1,6 @@
-# PayWise (PS8) Coding Rules & Context
+# PayWiz (PS8) Coding Rules & Context
 
-- **Goal:** Transform this Next.js starter into PayWise, an AI-powered smart banking assistant for customer Rohan Iyer (`CURRENT_CUSTOMER_ID = "B001"`).
+- **Goal:** Transform this Next.js starter into PayWiz, an AI-powered smart banking assistant for customer Rohan Iyer (`CURRENT_CUSTOMER_ID = "B001"`).
 - **Logged-in Customer:** Always hardcode `CURRENT_CUSTOMER_ID = "B001"`. NEVER accept a customer ID as an argument to any agent tool or API handler.
 - **Tech Stack:** Next.js App Router (TypeScript), Tailwind CSS, Supabase PostgreSQL, Google Gemini API (`@google/genai`) with function calling, Zod.
 - **Database Schema (seed/ps8_smart_banking.sql):**
@@ -11,9 +11,12 @@
   - `budgets`: `id`, `customer_id`, `category`, `monthly_limit`, `alert_at_pct`, `created_at`
 - **Agent Tools (lib/agent/tools.ts):**
   - Implement tools using `defineTool()` with Zod schemas.
-  - Read tools: `getMyAccounts`, `getTransactions`, `getSpendSummary`, `getBudgetStatus`.
-  - Write tools: `transferFunds`, `setBudgetAlert`.
-- **Transfers Rule:** Transfers MUST call the database function `transfer_funds` via `getSupabase().rpc('transfer_funds', { p_customer_id, p_from_account, p_to_account, p_amount, p_note })`. NEVER update balances directly in TypeScript.
+  - Read tools: `getMyAccounts`, `getTransactions`, `getSpendSummary`, `getBudgetStatus` (using `Asia/Kolkata` month boundaries).
+  - Write tools: `transferFunds` (calling `transfer_funds()` RPC), `setBudgetAlert` (calling `set_budget_alert()` RPC).
+- **Database Writes Rule:**
+  - Transfers MUST call the database function `transfer_funds` via `getSupabase().rpc('transfer_funds', ...)`.
+  - Budget updates MUST call the database function `set_budget_alert` via `getSupabase().rpc('set_budget_alert', ...)`.
+  - NEVER update balances or budgets directly in TypeScript.
 - **Security & Safety:**
   - Never ask for or show PINs, passwords, or OTPs.
   - Never display full account numbers (always use masked numbers).

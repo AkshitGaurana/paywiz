@@ -3,19 +3,20 @@ import { z } from "zod";
 import { defineTool, type AgentTool } from "./defineTool";
 import { getSupabase } from "../supabase";
 import { CURRENT_CUSTOMER_ID, BANKING_CATEGORIES } from "../banking";
+import { startOfCurrentMonthInIndia } from "../dates";
 
 /*
- * PS8 PayWise Banking Agent Tools
+ * PS8 PayWiz Banking Agent Tools
  *
  * READ TOOLS (H3):
  * 1. getMyAccounts   - Account balances and statuses for customer B001
  * 2. getTransactions - Filterable transaction history
- * 3. getSpendSummary - Category-wise monthly spend analysis
- * 4. getBudgetStatus - Monthly budget tracking & threshold alerts
+ * 3. getSpendSummary - Category-wise monthly spend analysis (Asia/Kolkata timezone)
+ * 4. getBudgetStatus - Monthly budget tracking & threshold alerts (Asia/Kolkata timezone)
  *
  * WRITE TOOLS (H4):
  * 5. transferFunds   - Stored procedure RPC 'transfer_funds' (KYC + transactional check)
- * 6. setBudgetAlert  - Upsert category budget limit and alert percentage
+ * 6. setBudgetAlert  - Stored procedure RPC 'set_budget_alert' (Database write requirement)
  */
 
 const getMyAccounts = defineTool({
@@ -148,8 +149,8 @@ const getSpendSummary = defineTool({
 
     const targetAccounts = account_id ? [account_id] : accountIds;
 
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    // Use Indian calendar month start (Asia/Kolkata)
+    const startOfMonth = startOfCurrentMonthInIndia();
 
     const { data, error } = await getSupabase()
       .from("transactions")
@@ -184,7 +185,7 @@ const getSpendSummary = defineTool({
       .sort((a, b) => b.total - a.total);
 
     return {
-      period: "current_month",
+      period: "current_month_ist",
       total_spent: Math.round(totalSpent * 100) / 100,
       top_category: breakdown[0]?.category ?? "none",
       breakdown,
@@ -221,8 +222,8 @@ const getBudgetStatus = defineTool({
     if (accError) throw new Error(accError.message);
     const accountIds = (accounts ?? []).map((a) => a.id);
 
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    // Use Indian calendar month start (Asia/Kolkata)
+    const startOfMonth = startOfCurrentMonthInIndia();
 
     const { data: transactions, error: tError } = await getSupabase()
       .from("transactions")
@@ -326,19 +327,13 @@ const setBudgetAlert = defineTool({
       .describe("Alert percentage trigger (default is 80 for 80%)"),
   }),
   run: async ({ category, monthly_limit, alert_at_pct }) => {
-    const { data, error } = await getSupabase()
-      .from("budgets")
-      .upsert(
-        {
-          customer_id: CURRENT_CUSTOMER_ID,
-          category,
-          monthly_limit,
-          alert_at_pct: alert_at_pct ?? 80,
-        },
-        { onConflict: "customer_id,category" }
-      )
-      .select("category, monthly_limit, alert_at_pct")
-      .single();
+    // Calls PostgreSQL database function 'set_budget_alert' through Supabase RPC
+    const { data, error } = await getSupabase().rpc("set_budget_alert", {
+      p_customer_id: CURRENT_CUSTOMER_ID,
+      p_category: category,
+      p_monthly_limit: monthly_limit,
+      p_alert_at_pct: alert_at_pct ?? 80,
+    });
 
     if (error) throw new Error(error.message);
     return { success: true, budget: data };

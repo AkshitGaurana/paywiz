@@ -1,10 +1,10 @@
-# PayWise (PS8) — AI Assistant & Project Rules
+# PayWiz (PS8) — AI Assistant & Project Rules
 
 ## 1. Project Overview
-- **Project:** PayWise — Smart Banking Assistant
+- **Project:** PayWiz — Smart Banking Assistant
 - **Team:** 16 | **Problem Statement:** PS8 (Fintech / Banking)
 - **Demo Customer:** Always logged in as `CURRENT_CUSTOMER_ID = "B001"` (Rohan Iyer, Chennai, KYC: Full).
-- **Core Goal:** Conversational AI banking assistant where Google Gemini autonomously selects tools via Function Calling to retrieve banking data (balances, transactions, spend analysis, budgets) and execute account transfers via Supabase.
+- **Core Goal:** Conversational AI banking assistant where Google Gemini autonomously selects tools via Function Calling to retrieve banking data (balances, transactions, spend analysis, budgets) and execute account transfers and budget updates via Supabase RPC functions.
 
 ---
 
@@ -32,16 +32,19 @@ Seed file: `seed/ps8_smart_banking.sql`
 1. **Never accept customer ID as a tool argument:**
    - The logged-in customer is always hardcoded as `CURRENT_CUSTOMER_ID = "B001"` in server code.
    - Tools must never allow Gemini or user input to supply or spoof `customer_id`.
-2. **Transfer execution via RPC ONLY:**
+2. **Database Writes via RPC ONLY:**
    - Transfers between accounts MUST execute through the PostgreSQL stored procedure `transfer_funds(p_customer_id, p_from_account, p_to_account, p_amount, p_note)` via `getSupabase().rpc('transfer_funds', ...)`.
-   - Never update `accounts` or `transactions` directly in TypeScript for transfers.
-3. **KYC & Account Limits (Enforced in DB function):**
+   - Budget alerts MUST execute through the PostgreSQL stored procedure `set_budget_alert(p_customer_id, p_category, p_monthly_limit, p_alert_at_pct)` via `getSupabase().rpc('set_budget_alert', ...)`.
+   - Never update `accounts`, `transactions`, or `budgets` directly through TypeScript bypasses.
+3. **Timezone Accuracy:**
+   - All month-boundary calculations for spend summaries and budgets use the `Asia/Kolkata` timezone (1st of month at 00:00:00+05:30).
+4. **KYC & Account Limits (Enforced in DB function):**
    - Full KYC (Rohan): ₹50,000 per txn, ₹1,00,000 daily limit.
    - Basic KYC: ₹10,000 per txn, ₹25,000 daily limit.
    - Overdrafts strictly prohibited (`balance >= 0`).
    - Frozen accounts cannot send or receive funds.
    - Transfers only permitted between the customer's own accounts (`from != to`).
-4. **Security & Guardrails:**
+5. **Security & Guardrails:**
    - NEVER ask for or accept PIN, password, or OTP.
    - NEVER display or request a full 16-digit account number (only masked numbers like `XXXX 4821`).
    - NEVER provide speculative investment or trading advice.
