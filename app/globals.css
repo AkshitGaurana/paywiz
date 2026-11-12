@@ -1,5 +1,30 @@
 @import "tailwindcss";
 
+/* PayWise pastel theme */
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply text-slate-800 antialiased;
+  background:
+    radial-gradient(60rem 40rem at -10% -10%, #e9d5ff 0%, transparent 60%),
+    radial-gradient(50rem 35rem at 110% 0%, #fbcfe8 0%, transparent 55%),
+    radial-gradient(50rem 40rem at 50% 120%, #bae6fd 0%, transparent 60%),
+    #fdf8ff;
+  background-attachment: fixed;
+}
+
+@layer components {
+  .card {
+    @apply rounded-3xl border border-white/70 bg-white/70 shadow-[0_8px_30px_rgba(167,139,250,0.15)] backdrop-blur-xl;
+  }
+  .card-head {
+    @apply border-b border-violet-100/80 px-5 py-4;
+  }
+  .btn-primary {
+    @apply rounded-xl bg-gradient-to-r from-violet-400 via-fuchsia-400 to-pink-400 px-4 py-2 text-sm font-medium text-white shadow-md shadow-fuchsia-200 transition hover:brightness-105 hover:shadow-lg active:scale-[0.98] disabled:opacity-50;
+  }
+  .field {
+    @apply rounded-xl border border-violet-200 bg-white/80 px-3 py-2 text-sm outline-none transition focus:border-violet-400 focus:ring-4 focus:ring-violet-100;
+  }
+  .chip {
+    @apply rounded-full border border-violet-200 bg-white/80 px-3 py-1.5 text-left text-sm text-violet-700 transition hover:-translate-y-0.5 hover:bg-violet-50 hover:shadow;
+  }
 }
