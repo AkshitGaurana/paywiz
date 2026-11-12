@@ -1,3 +1,13 @@
+<!-- BEGIN:nextjs-agent-rules -->
+
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
+
 # PayWise (PS8) — AI Assistant & Project Rules
 
 ## 1. Project Overview
@@ -64,3 +74,17 @@ Seed file: `seed/ps8_smart_banking.sql`
 ## 6. Security & Key Boundaries
 - `SUPABASE_SECRET_KEY` and `GEMINI_API_KEY` must ONLY be used on the server (`lib/` and `app/api/`).
 - Never expose service keys or `.env.local` to the client or GitHub.
+
+---
+
+## 6. Transfer Confirmation (Security)
+- `transferFunds` NEVER moves money by itself. It validates the request and stores a **pending transfer** on the server (`lib/pendingTransfers.ts`, random id, single-use, 5-minute expiry).
+- Money moves only when the customer presses **Confirm transfer** in the chat UI, which calls `POST /api/transfers/confirm` with the confirmation id. The amount and accounts are read from the server-side record, never from the browser or chat history.
+- The confirm route then executes the `transfer_funds()` RPC (`executeTransfer` in `lib/banking.ts`).
+
+## 7. Shared Code Map
+- `lib/banking.ts` — customer constant, categories, Supabase read helpers, budget progress, `transfer_funds` / `set_budget_alert` RPC wrappers, safe error messages.
+- `lib/agent/tools.ts` — the six Gemini tools (thin wrappers over `lib/banking.ts`).
+- `app/api/{accounts,transactions,budgets,transfers/confirm,agent}` — REST routes used by the dashboard and chat.
+- `lib/apiErrors.ts` — safe API error mapping (config / Gemini 429 / 503 / network / internal).
+- `tests/` — vitest suites (`npm test`), all Supabase calls mocked.

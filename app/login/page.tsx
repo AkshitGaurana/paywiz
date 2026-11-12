@@ -27,23 +27,24 @@ export default function LoginPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center p-4">
-      <form onSubmit={handleSubmit} className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-sm font-semibold text-slate-500">PayWise</p>
+      <form onSubmit={handleSubmit} className="card w-full max-w-sm p-8">
+        <div className="mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-violet-300 via-pink-300 to-amber-200 text-xl font-bold text-white shadow-md">₹</div>
+        <p className="bg-gradient-to-r from-violet-500 to-pink-500 bg-clip-text text-sm font-bold text-transparent">PayWise</p>
         <h1 className="mt-1 text-lg font-semibold">Smart Banking Assistant</h1>
         <p className="mt-1 text-sm text-slate-500">Enter the team passcode to continue. This keeps your app and your Gemini quota safe.</p>
         <input
           type="password"
           value={passcode}
           onChange={(e) => setPasscode(e.target.value)}
-          className="mt-4 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-slate-500"
+          className="field mt-4 w-full"
           placeholder="Passcode"
           autoFocus
         />
-        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        {error && <p className="mt-2 text-sm text-rose-600">{error}</p>}
         <button
           type="submit"
           disabled={loading || !passcode}
-          className="mt-4 w-full rounded-lg bg-slate-900 px-3 py-2 text-white disabled:opacity-50"
+          className="btn-primary mt-4 w-full"
         >
           {loading ? "Checking..." : "Enter"}
         </button>

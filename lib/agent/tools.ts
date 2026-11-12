@@ -1,9 +1,17 @@
 import "server-only";
 import { z } from "zod";
 import { defineTool, type AgentTool } from "./defineTool";
-import { getSupabase } from "../supabase";
-import { CURRENT_CUSTOMER_ID, BANKING_CATEGORIES } from "../banking";
-import { startOfCurrentMonthInIndia } from "../dates";
+import {
+  BANKING_CATEGORIES,
+  checkTransferRequest,
+  getBudgetsWithProgress,
+  getMonthlySpendingByCategory,
+  getOwnedAccounts,
+  listOwnedTransactions,
+  upsertBudget,
+} from "../banking";
+import { createPendingTransfer } from "../pendingTransfers";
+import { budgetCategorySchema } from "../schemas";
 
 /*
  * PS8 PayWise Banking Agent Tools
@@ -15,8 +23,11 @@ import { startOfCurrentMonthInIndia } from "../dates";
  * 4. getBudgetStatus - Monthly budget tracking & threshold alerts (Asia/Kolkata timezone)
  *
  * WRITE TOOLS (H4):
- * 5. transferFunds   - Stored procedure RPC 'transfer_funds' (KYC + transactional check)
- * 6. setBudgetAlert  - Stored procedure RPC 'set_budget_alert' (Database write requirement)
+ * 5. transferFunds   - PREPARES a transfer. Money moves only after the customer presses
+ *                      "Confirm transfer" (POST /api/transfers/confirm -> transfer_funds RPC).
+ * 6. setBudgetAlert  - Stored procedure RPC 'set_budget_alert'
+ *
+ * Supabase access and safe error messages live in lib/banking.ts (shared with the REST APIs).
  */
 
 const getMyAccounts = defineTool({
@@ -30,25 +41,7 @@ const getMyAccounts = defineTool({
       .describe("Whether to include frozen accounts. Default is true."),
   }),
   run: async ({ include_frozen }) => {
-    const { data, error } = await getSupabase()
-      .from("accounts")
-      .select("id, account_type, nickname, masked_number, balance, is_frozen")
-      .eq("customer_id", CURRENT_CUSTOMER_ID)
-      .order("id");
-
-    if (error) throw new Error(error.message);
-
-    const accounts = (data ?? [])
-      .filter((a) => (include_frozen === false ? !a.is_frozen : true))
-      .map((a) => ({
-        id: a.id,
-        nickname: a.nickname,
-        account_type: a.account_type,
-        masked_number: a.masked_number,
-        balance: Number(a.balance),
-        is_frozen: a.is_frozen,
-      }));
-
+    const accounts = (await getOwnedAccounts()).filter((a) => (include_frozen === false ? !a.is_frozen : true));
     return { count: accounts.length, accounts };
   },
 });
@@ -60,6 +53,8 @@ const getTransactions = defineTool({
   schema: z.object({
     account_id: z
       .string()
+      .trim()
+      .max(30)
       .optional()
       .describe("Filter by specific account ID (e.g. A100 for Salary, A101 for Savings)"),
     category: z
@@ -79,38 +74,14 @@ const getTransactions = defineTool({
       .describe("Number of transactions to return (default 10, max 30)"),
   }),
   run: async ({ account_id, category, direction, limit }) => {
-    // Ensure we only query transactions belonging to Rohan's accounts
-    const { data: accounts, error: accError } = await getSupabase()
-      .from("accounts")
-      .select("id, nickname")
-      .eq("customer_id", CURRENT_CUSTOMER_ID);
-
-    if (accError) throw new Error(accError.message);
-    const accountIds = (accounts ?? []).map((a) => a.id);
-    const nicknameMap = Object.fromEntries(
-      (accounts ?? []).map((a) => [a.id, a.nickname])
-    );
-
-    if (account_id && !accountIds.includes(account_id)) {
-      throw new Error(`Account ${account_id} is not one of your accounts.`);
-    }
-
-    let query = getSupabase()
-      .from("transactions")
-      .select("id, account_id, txn_date, description, category, direction, amount")
-      .in("account_id", account_id ? [account_id] : accountIds)
-      .order("txn_date", { ascending: false })
-      .limit(limit ?? 10);
-
-    if (category) query = query.eq("category", category);
-    if (direction) query = query.eq("direction", direction);
-
-    const { data, error } = await query;
-    if (error) throw new Error(error.message);
-
+    const [accounts, transactions] = await Promise.all([
+      getOwnedAccounts(),
+      listOwnedTransactions({ account_id, category, direction, limit: limit ?? 10 }),
+    ]);
+    const nicknameMap = Object.fromEntries(accounts.map((a) => [a.id, a.nickname]));
     return {
-      count: data.length,
-      transactions: data.map((t) => ({
+      count: transactions.length,
+      transactions: transactions.map((t) => ({
         id: t.id,
         account_id: t.account_id,
         account_name: nicknameMap[t.account_id] || t.account_id,
@@ -118,7 +89,7 @@ const getTransactions = defineTool({
         description: t.description,
         category: t.category,
         direction: t.direction,
-        amount: Number(t.amount),
+        amount: t.amount,
       })),
     };
   },
@@ -131,56 +102,24 @@ const getSpendSummary = defineTool({
   schema: z.object({
     account_id: z
       .string()
+      .trim()
+      .max(30)
       .optional()
       .describe("Optional account ID to filter spending (e.g. A100). Default is all accounts."),
   }),
   run: async ({ account_id }) => {
-    const { data: accounts, error: accError } = await getSupabase()
-      .from("accounts")
-      .select("id")
-      .eq("customer_id", CURRENT_CUSTOMER_ID);
-
-    if (accError) throw new Error(accError.message);
-    const accountIds = (accounts ?? []).map((a) => a.id);
-
+    const accountIds = (await getOwnedAccounts()).map((a) => a.id);
     if (account_id && !accountIds.includes(account_id)) {
       throw new Error(`Account ${account_id} is not one of your accounts.`);
     }
-
-    const targetAccounts = account_id ? [account_id] : accountIds;
-
-    // Use Indian calendar month start (Asia/Kolkata)
-    const startOfMonth = startOfCurrentMonthInIndia();
-
-    const { data, error } = await getSupabase()
-      .from("transactions")
-      .select("category, amount")
-      .in("account_id", targetAccounts)
-      .eq("direction", "debit")
-      .gte("txn_date", startOfMonth);
-
-    if (error) throw new Error(error.message);
-
-    let totalSpent = 0;
-    const categoryTotals: Record<string, { total: number; count: number }> = {};
-
-    for (const txn of data ?? []) {
-      const amt = Number(txn.amount);
-      totalSpent += amt;
-      if (!categoryTotals[txn.category]) {
-        categoryTotals[txn.category] = { total: 0, count: 0 };
-      }
-      categoryTotals[txn.category].total += amt;
-      categoryTotals[txn.category].count += 1;
-    }
-
-    const breakdown = Object.entries(categoryTotals)
-      .map(([cat, stat]) => ({
-        category: cat,
-        total: Math.round(stat.total * 100) / 100,
-        transaction_count: stat.count,
-        percentage_of_total:
-          totalSpent > 0 ? Math.round((stat.total / totalSpent) * 100) : 0,
+    // Current IST month, debits only, own-account transfers excluded (they are not spending).
+    const byCategory = await getMonthlySpendingByCategory(account_id ? [account_id] : accountIds);
+    const totalSpent = Object.values(byCategory).reduce((sum, amount) => sum + amount, 0);
+    const breakdown = Object.entries(byCategory)
+      .map(([category, total]) => ({
+        category,
+        total: Math.round(total * 100) / 100,
+        percentage_of_total: totalSpent > 0 ? Math.round((total / totalSpent) * 100) : 0,
       }))
       .sort((a, b) => b.total - a.total);
 
@@ -204,84 +143,47 @@ const getBudgetStatus = defineTool({
       .describe("Specific category to check, e.g. food. Default is all budgets."),
   }),
   run: async ({ category }) => {
-    let budgetQuery = getSupabase()
-      .from("budgets")
-      .select("id, category, monthly_limit, alert_at_pct")
-      .eq("customer_id", CURRENT_CUSTOMER_ID);
-
-    if (category) budgetQuery = budgetQuery.eq("category", category);
-
-    const { data: budgets, error: bError } = await budgetQuery;
-    if (bError) throw new Error(bError.message);
-
-    const { data: accounts, error: accError } = await getSupabase()
-      .from("accounts")
-      .select("id")
-      .eq("customer_id", CURRENT_CUSTOMER_ID);
-
-    if (accError) throw new Error(accError.message);
-    const accountIds = (accounts ?? []).map((a) => a.id);
-
-    // Use Indian calendar month start (Asia/Kolkata)
-    const startOfMonth = startOfCurrentMonthInIndia();
-
-    const { data: transactions, error: tError } = await getSupabase()
-      .from("transactions")
-      .select("category, amount")
-      .in("account_id", accountIds)
-      .eq("direction", "debit")
-      .gte("txn_date", startOfMonth);
-
-    if (tError) throw new Error(tError.message);
-
-    const spendByCategory: Record<string, number> = {};
-    for (const txn of transactions ?? []) {
-      spendByCategory[txn.category] =
-        (spendByCategory[txn.category] || 0) + Number(txn.amount);
-    }
-
-    const statusList = (budgets ?? []).map((b) => {
-      const spent = spendByCategory[b.category] || 0;
-      const limit = Number(b.monthly_limit);
-      const percentUsed = limit > 0 ? Math.round((spent / limit) * 100) : 0;
-      const remaining = Math.max(0, limit - spent);
-      const alertTriggered = percentUsed >= b.alert_at_pct;
+    const budgets = (await getBudgetsWithProgress()).filter((b) => !category || b.category === category);
+    const statusList = budgets.map((b) => {
+      const alertTriggered = b.progress_pct >= b.alert_at_pct;
       return {
         category: b.category,
-        monthly_limit: limit,
-        spent: Math.round(spent * 100) / 100,
-        remaining: Math.round(remaining * 100) / 100,
-        percent_used: percentUsed,
+        monthly_limit: b.monthly_limit,
+        spent: b.spent,
+        remaining: b.remaining,
+        percent_used: b.progress_pct,
         alert_threshold_pct: b.alert_at_pct,
         alert_triggered: alertTriggered,
         status: alertTriggered ? "EXCEEDED_ALERT_THRESHOLD" : "ON_TRACK",
       };
     });
-
-    return {
-      count: statusList.length,
-      budgets: statusList,
-    };
+    return { count: statusList.length, budgets: statusList };
   },
 });
 
 const transferFunds = defineTool({
   name: "transferFunds",
   description:
-    "Use this when the user asks to transfer or move money between their own bank accounts. Transfers are strictly between own accounts and enforce KYC and balance limits.",
-  writes: true,
+    "Use this when the user clearly asks to transfer or move a specific amount between two of their own bank accounts. This PREPARES the transfer only: no money moves until the customer presses the Confirm transfer button. Never call it for vague requests.",
+  // Preparing does not write. The write happens in POST /api/transfers/confirm.
+  writes: false,
   schema: z.object({
     from_account: z
       .string()
       .trim()
+      .min(1)
+      .max(30)
       .describe("Source account ID, for example A100 (Salary account) or A101 (Savings)"),
     to_account: z
       .string()
       .trim()
+      .min(1)
+      .max(30)
       .describe("Destination account ID, for example A101 (Savings)"),
     amount: z
       .number()
       .positive()
+      .max(9_999_999_999.99)
       .describe("Amount in rupees to transfer, e.g. 5000"),
     note: z
       .string()
@@ -291,17 +193,27 @@ const transferFunds = defineTool({
       .describe("Optional note or reason for the transfer"),
   }),
   run: async ({ from_account, to_account, amount, note }) => {
-    // Must call the existing PostgreSQL stored procedure transfer_funds() via RPC
-    const { data, error } = await getSupabase().rpc("transfer_funds", {
-      p_customer_id: CURRENT_CUSTOMER_ID,
-      p_from_account: from_account,
-      p_to_account: to_account,
-      p_amount: amount,
-      p_note: note ?? null,
+    const { from, to } = await checkTransferRequest({
+      from_account_id: from_account,
+      to_account_id: to_account,
+      amount,
     });
-
-    if (error) throw new Error(error.message);
-    return { success: true, transfer: data };
+    const pending = createPendingTransfer({
+      from_account_id: from_account,
+      to_account_id: to_account,
+      amount,
+      note,
+    });
+    return {
+      status: "awaiting_customer_confirmation",
+      confirmation_id: pending.id,
+      from: { id: from.id, nickname: from.nickname, masked_number: from.masked_number },
+      to: { id: to.id, nickname: to.nickname, masked_number: to.masked_number },
+      amount,
+      expires_in_minutes: 5,
+      instruction:
+        "No money has moved yet. Tell the customer the exact amount and both accounts, and ask them to press the Confirm transfer button below your message.",
+    };
   },
 });
 
@@ -311,12 +223,13 @@ const setBudgetAlert = defineTool({
     "Use this when the user asks to create or update a monthly budget spending limit or alert percentage for an expense category.",
   writes: true,
   schema: z.object({
-    category: z
-      .enum(BANKING_CATEGORIES)
-      .describe("Expense category to budget (e.g. food, groceries, shopping, bills, etc.)"),
+    category: budgetCategorySchema.describe(
+      "Expense category to budget (e.g. food, groceries, shopping, bills, etc.)"
+    ),
     monthly_limit: z
       .number()
       .positive()
+      .max(9_999_999_999.99)
       .describe("Monthly spending limit in rupees, e.g. 6000"),
     alert_at_pct: z
       .number()
@@ -327,16 +240,9 @@ const setBudgetAlert = defineTool({
       .describe("Alert percentage trigger (default is 80 for 80%)"),
   }),
   run: async ({ category, monthly_limit, alert_at_pct }) => {
-    // Calls PostgreSQL database function 'set_budget_alert' through Supabase RPC
-    const { data, error } = await getSupabase().rpc("set_budget_alert", {
-      p_customer_id: CURRENT_CUSTOMER_ID,
-      p_category: category,
-      p_monthly_limit: monthly_limit,
-      p_alert_at_pct: alert_at_pct ?? 80,
-    });
-
-    if (error) throw new Error(error.message);
-    return { success: true, budget: data };
+    // Calls PostgreSQL database function 'set_budget_alert' through Supabase RPC (lib/banking.ts).
+    const budget = await upsertBudget({ category, monthly_limit, alert_at_pct: alert_at_pct ?? 80 });
+    return { success: true, budget };
   },
 });
 

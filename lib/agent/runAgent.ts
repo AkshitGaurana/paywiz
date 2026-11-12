@@ -81,7 +81,7 @@ async function runTool(name: string, rawArgs: unknown): Promise<AgentStep> {
   const parsed = tool.schema.safeParse(rawArgs);
   if (!parsed.success) {
     const message = parsed.error.issues.map((i) => `${i.path.join(".") || "args"}: ${i.message}`).join("; ");
-    return { tool: name, args: rawArgs, ok: false, writes: tool.writes, error: `Invalid arguments: ${message}` };
+    return { tool: name, args: rawArgs, ok: false, writes: false, error: `Invalid arguments: ${message}` };
   }
 
   try {
@@ -89,6 +89,9 @@ async function runTool(name: string, rawArgs: unknown): Promise<AgentStep> {
     return { tool: name, args: parsed.data, ok: true, writes: tool.writes, result };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Tool failed";
-    return { tool: name, args: parsed.data, ok: false, writes: tool.writes, error: message };
+    // Server misconfiguration is not something Gemini can explain: let the API route handle it.
+    if (/Missing environment variable/i.test(message)) throw err;
+    // A failed tool did not write anything, so writes is false.
+    return { tool: name, args: parsed.data, ok: false, writes: false, error: message };
   }
 }
