@@ -11,6 +11,16 @@ import type { AgentResult, AgentStep } from "./types";
 /** Stops the agent from looping forever and using up your Gemini quota. */
 const MAX_ROUNDS = 5;
 
+/** Whole agent run (all Gemini rounds + tools) must finish within this time. */
+export const AGENT_DEADLINE_MS = 45_000;
+
+export class AgentTimeoutError extends Error {
+  constructor() {
+    super("Gemini request timed out");
+    this.name = "AgentTimeoutError";
+  }
+}
+
 /**
  * THE AGENT LOOP
  * 1. Send the chat + the tool list to Gemini.
@@ -28,7 +38,10 @@ export async function runAgent(messages: ChatMessage[]): Promise<AgentResult> {
     parts: [{ text: m.text }],
   }));
 
+  const deadline = AbortSignal.timeout(AGENT_DEADLINE_MS);
+
   for (let round = 0; round < MAX_ROUNDS; round++) {
+    if (deadline.aborted) throw new AgentTimeoutError();
     const response = await ai.models.generateContent({
       model: GEMINI_MODEL,
       contents,
@@ -36,7 +49,13 @@ export async function runAgent(messages: ChatMessage[]): Promise<AgentResult> {
         systemInstruction: buildSystemPrompt(),
         tools: [{ functionDeclarations }],
         temperature: 0.2,
+        abortSignal: deadline,
       },
+    }).catch((err: unknown) => {
+      if (deadline.aborted || (err instanceof Error && /abort|timed? ?out/i.test(`${err.name} ${err.message}`))) {
+        throw new AgentTimeoutError();
+      }
+      throw err;
     });
 
     const calls = response.functionCalls ?? [];

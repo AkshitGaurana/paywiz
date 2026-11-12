@@ -40,6 +40,7 @@ describe("POST /api/agent", () => {
     [Object.assign(new Error("RESOURCE_EXHAUSTED"), { status: 429 }), 429, /quota/],
     [Object.assign(new Error("model overloaded"), { status: 503 }), 503, /busy/],
     [new Error("TypeError: fetch failed"), 502, /could not be reached/],
+    [Object.assign(new Error("Gemini request timed out"), { name: "AgentTimeoutError" }), 504, /took too long/],
     [new Error("secret db password=hunter2 at line 4"), 500, /could not complete/],
   ])("maps %s safely", async (err, status, msg) => {
     runAgent.mockRejectedValue(err);

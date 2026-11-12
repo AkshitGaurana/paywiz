@@ -11,6 +11,9 @@ export function classifyAgentError(err: unknown): SafeApiError {
   if (/Missing environment variable/i.test(message)) {
     return { status: 503, category: "config", error: "The banking assistant is not configured on the server yet." };
   }
+  if (/AgentTimeoutError|timed out|TimeoutError|AbortError/i.test(`${(err as Error)?.name ?? ""} ${message}`)) {
+    return { status: 504, category: "gemini_timeout", error: "The assistant took too long to respond. Please try again." };
+  }
   if (status === 429 || /\b429\b|quota|RESOURCE_EXHAUSTED|rate limit/i.test(message)) {
     return { status: 429, category: "gemini_quota", error: "Gemini quota reached. Wait a minute and try again." };
   }

@@ -45,21 +45,34 @@ export default function AgentChat({ onDataChanged }: { onDataChanged?: () => voi
     setLoading(true);
     setError("");
 
+    // Safety net: never leave the chat spinning forever.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 60_000);
+
     try {
       const res = await fetch("/api/agent", {
+        signal: controller.signal,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         // Only the last 20 messages are sent, to keep requests small.
         body: JSON.stringify({ messages: next.slice(-20).map(({ role, text }) => ({ role, text })) }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Request failed");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "The assistant is unavailable right now. Please try again.");
       const result = data as AgentResult;
       setMessages([...next, { role: "model", text: result.reply, steps: result.steps }]);
       if (result.steps.some((s) => s.writes && s.ok)) onDataChanged?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      const aborted = err instanceof Error && err.name === "AbortError";
+      setError(
+        aborted
+          ? "The assistant took too long to respond. Please try again."
+          : err instanceof Error
+            ? err.message
+            : "Something went wrong"
+      );
     } finally {
+      clearTimeout(timer);
       setLoading(false);
     }
   }
