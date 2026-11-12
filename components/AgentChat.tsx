@@ -20,7 +20,7 @@ type PendingTransfer = {
 };
 
 function pendingTransferFrom(steps: AgentStep[] | undefined): PendingTransfer | null {
-  const step = steps?.find((s) => s.tool === "transferOwnAccounts" && s.ok);
+  const step = steps?.find((s) => s.tool === "transferFunds" && s.ok);
   const result = step?.result as Partial<PendingTransfer> | undefined;
   return result?.confirmation_id && result.from && result.to ? (result as PendingTransfer) : null;
 }

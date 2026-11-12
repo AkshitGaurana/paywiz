@@ -32,19 +32,25 @@ To check your settings, open `/api/health`. It shows which variables are missing
 
 ## PS8 Database Setup
 
-PayWise uses Supabase PostgreSQL for the PS8 Smart Banking Assistant. Run the SQL
-files in this exact order from the Supabase **SQL Editor**:
+PayWise uses Supabase PostgreSQL for the PS8 Smart Banking Assistant. Choose the setup path that matches your database state:
 
+### Path A: Fresh Database Setup
+Run the SQL files in this exact order from the Supabase **SQL Editor**:
 1. `seed/00_starter_example.sql`
-   - Creates the starter `tasks` table used by the template's example tools and
-     `/api/tasks` route.
+   - Creates the starter `tasks` table used by the template's example tools and health checks.
 2. `seed/ps8_smart_banking.sql`
-   - Creates and seeds the five PS8 banking tables.
-   - Creates the `transfer_funds()` function.
+   - Creates and seeds all five PS8 banking tables (`customers`, `accounts`, `transfer_limits`, `transactions`, `budgets`).
+   - Creates both database functions: `transfer_funds()` and `set_budget_alert()`.
    - Enables Row Level Security and grants the server `service_role` access.
 
-The PS8 seed drops and recreates only its own tables, so rerunning it resets the
-PS8 demo data. Do not edit either seed file when setting up the database.
+*Note: You do not need to run any extra SQL after running `seed/ps8_smart_banking.sql`.*
+
+### Path B: Existing PS8 Database Migration
+If your Supabase project already has the PS8 tables created from an earlier seed run and is only missing the budget RPC function:
+- Run `seed/set_budget_alert.sql`
+   - Standalone migration that creates the `set_budget_alert()` PostgreSQL function and grants permissions without dropping or modifying existing data.
+
+Do not run both SQL definitions after a fresh setup. The PS8 seed drops and recreates only its own tables, so rerunning it resets the PS8 demo data. Do not edit either seed file when setting up the database.
 
 ### PS8 tables
 
@@ -160,21 +166,42 @@ database errors.
   terminal output. Do not expose environment variable values in logs or bug
   reports.
 
+## PayWise Banking Agent Tools
+
+The PayWise assistant communicates in plain English and independently selects tools via Gemini Function Calling. All tools run on the server with Zod argument validation and database-level enforcement:
+
+| Tool | Type | Purpose | DB Operation |
+|---|---|---|---|
+| `getMyAccounts` | Read | Retrieve all accounts, balances, and masked numbers for customer B001 | Supabase query on `accounts` |
+| `getTransactions` | Read | Fetch transaction history with category, direction, and limit filters | Supabase query on `transactions` |
+| `getSpendSummary` | Read | Calculate monthly debit totals and category breakdown in `Asia/Kolkata` | Filter `txn_date >= startOfCurrentMonthInIndia()` |
+| `getBudgetStatus` | Read | Compare monthly spending limits against actual month debits in `Asia/Kolkata` | Correlate `budgets` with debits |
+| `transferFunds` | **Write** | Transfer funds between the customer's own accounts | PostgreSQL stored procedure `transfer_funds()` via `.rpc()` |
+| `setBudgetAlert` | **Write** | Set or update a monthly category budget and alert percentage | PostgreSQL function `set_budget_alert()` via `.rpc()` |
+
+### Security & Agent Guardrails
+
+- **Zero-credential policy:** PayWise never requests, accepts, or exposes PINs, passwords, CVVs, or OTPs.
+- **Account masking:** Only masked account numbers (e.g., `XXXX 4821`) or nicknames are shown.
+- **Strict customer boundary:** The agent operates exclusively for verified customer `B001` (`CURRENT_CUSTOMER_ID`). No user or model input can alter this identifier.
+- **RPC transactional execution:** All database modifications execute via PostgreSQL stored procedures with transactional locking and KYC limit checks. Direct table updates are strictly forbidden.
+- **No financial speculation:** PayWise does not provide stock, cryptocurrency, or investment advice.
+
 ## Folder guide
 
 ```
 app/
-  page.tsx               Home page: agent chat + data list   <- change
+  page.tsx               Home page: agent chat + data list
   login/page.tsx         Passcode page
   api/agent/route.ts     POST /api/agent: runs the agent
-  api/tasks/route.ts     Example REST API                    <- copy for your tables
-  api/health/route.ts    Shows which settings are missing
+  api/tasks/route.ts     Example REST API
+  api/health/route.ts    Shows health check and database connectivity
 components/
-  AgentChat.tsx          Chat UI that shows tool calls       <- change the sample prompts
-  TaskList.tsx           Example data list                   <- replace with your data
+  AgentChat.tsx          Chat UI that shows tool calls
+  TaskList.tsx           Example data list
 lib/
-  agent/tools.ts         THE AGENT TOOLS                     <- your main work
-  agent/systemPrompt.ts  Instructions for Gemini             <- rewrite for your problem
+  agent/tools.ts         THE AGENT TOOLS (PS8 PayWise banking tools)
+  agent/systemPrompt.ts  Instructions for Gemini (PayWise persona & guardrails)
   agent/runAgent.ts      The agent loop (max 5 rounds)
   agent/defineTool.ts    Turns Zod schemas into Gemini tool declarations
   supabase.ts            Server-side Supabase client
@@ -182,40 +209,6 @@ lib/
 proxy.ts                 Passcode gate for every page and API
 seed/                    SQL seed data for each problem statement
 ```
-
-## How to add a tool (the main hackathon work)
-
-Open `lib/agent/tools.ts` and copy this pattern:
-
-```ts
-const createReturnRequest = defineTool({
-  name: "createReturnRequest",
-  description: "Use this when the customer wants to return a product from a delivered order.",
-  writes: true,
-  schema: z.object({
-    order_id: z.number().int().describe("The order number, for example 1007"),
-    product_id: z.string().describe("The product id, for example P101"),
-    reason: z.string().min(3).describe("Why the customer is returning it"),
-  }),
-  run: async ({ order_id, product_id, reason }) => {
-    // 1. Check your business rule (for example the return window)
-    // 2. Read or write Supabase
-    // 3. Return a small, clean object, or throw new Error("clear message")
-  },
-});
-
-export const tools: AgentTool[] = [createReturnRequest /*, more tools */];
-```
-
-Good tools:
-
-- Have a description that starts with "Use this when..."
-- Describe every field and its format, for example "YYYY-MM-DD"
-- Check business rules in code, not only in the prompt
-- Return small objects that Gemini can read easily
-- Throw clear errors, which the agent then explains to the user
-
-Then rewrite `lib/agent/systemPrompt.ts`. Name the business user, the logged-in user id (for example `C001`), your business rules and when to use each tool.
 
 ## Rules to remember
 
@@ -229,6 +222,8 @@ Then rewrite `lib/agent/systemPrompt.ts`. Name the business user, the logged-in 
 | File | Problem |
 | --- | --- |
 | `00_starter_example.sql` | Example `tasks` table (run first) |
+| `ps8_smart_banking.sql` | PS8 Smart Banking Assistant (PayWise) |
+| `set_budget_alert.sql` | PS8 standalone migration for `set_budget_alert()` RPC |
 | `demo_eventease.sql` | Day 1 lab: EventEase campus events |
 | `ps1_ecommerce_support.sql` | PS1 E-commerce Customer Support Agent |
 | `ps2_inventory_restock.sql` | PS2 Inventory Restock Agent |

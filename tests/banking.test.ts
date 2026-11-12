@@ -96,3 +96,15 @@ describe("budget progress", () => {
     expect(p.progress_pct).toBe(150);
   });
 });
+
+describe("budget writes use set_budget_alert() RPC", () => {
+  it("calls the RPC for customer B001 and hides DB errors", async () => {
+    rpc.mockResolvedValue({ data: null, error: { message: "internal detail", code: "P0001" } });
+    await expect(banking.upsertBudget({ category: "food", monthly_limit: 6000, alert_at_pct: 80 })).rejects.toThrow(
+      "Could not save this budget. Please try again."
+    );
+    expect(rpc).toHaveBeenCalledWith("set_budget_alert", {
+      p_customer_id: "B001", p_category: "food", p_monthly_limit: 6000, p_alert_at_pct: 80,
+    });
+  });
+});

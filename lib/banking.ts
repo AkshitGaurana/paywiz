@@ -1,9 +1,32 @@
 import "server-only";
 import { getSupabase } from "./supabase";
-import { todayInIndia } from "./dates";
+import { startOfCurrentMonthInIndia } from "./dates";
 
-/** Fictional demo customer (Rohan Iyer, full KYC) from seed/ps8_smart_banking.sql. */
-export const DEMO_CUSTOMER_ID = "B001";
+/**
+ * Logged-in demo customer: Rohan Iyer (Full KYC)
+ * In production this would come from session authentication.
+ * Never allow the user or LLM to supply a customer ID.
+ */
+export const CURRENT_CUSTOMER_ID = "B001";
+/** Alias kept for existing API routes. */
+export const DEMO_CUSTOMER_ID = CURRENT_CUSTOMER_ID;
+
+export const BANKING_CATEGORIES = [
+  "food",
+  "groceries",
+  "shopping",
+  "travel",
+  "bills",
+  "rent",
+  "entertainment",
+  "health",
+  "education",
+  "salary",
+  "transfer",
+  "other",
+] as const;
+
+export type BankingCategory = (typeof BANKING_CATEGORIES)[number];
 
 type SupabaseErrorSummary = {
   code?: string;
@@ -66,6 +89,7 @@ export async function getOwnedAccounts(): Promise<OwnedAccount[]> {
 export async function listOwnedTransactions(options: {
   account_id?: string;
   category?: string;
+  direction?: "debit" | "credit";
   limit: number;
 }): Promise<Transaction[]> {
   const accountIds = (await getOwnedAccounts()).map((account) => account.id);
@@ -81,6 +105,7 @@ export async function listOwnedTransactions(options: {
     .order("txn_date", { ascending: false })
     .limit(options.limit);
   if (options.category) query = query.eq("category", options.category);
+  if (options.direction) query = query.eq("direction", options.direction);
 
   const { data, error } = await query;
   if (error) {
@@ -95,7 +120,7 @@ export async function getMonthlySpendingByCategory(
 ): Promise<Record<string, number>> {
   if (accountIds.length === 0) return {};
 
-  const monthStart = `${todayInIndia().slice(0, 7)}-01T00:00:00+05:30`;
+  const monthStart = startOfCurrentMonthInIndia();
   const { data, error } = await getSupabase()
     .from("transactions")
     .select("category, amount")
@@ -157,16 +182,20 @@ export async function upsertBudget(input: {
   monthly_limit: number;
   alert_at_pct: number;
 }): Promise<BudgetWithProgress> {
-  const { data, error } = await getSupabase()
-    .from("budgets")
-    .upsert({ customer_id: DEMO_CUSTOMER_ID, ...input }, { onConflict: "customer_id,category" })
-    .select("id, category, monthly_limit, alert_at_pct")
-    .single();
+  // Database writes go through the set_budget_alert() RPC (seed/set_budget_alert.sql).
+  const { error } = await getSupabase().rpc("set_budget_alert", {
+    p_customer_id: CURRENT_CUSTOMER_ID,
+    p_category: input.category,
+    p_monthly_limit: input.monthly_limit,
+    p_alert_at_pct: input.alert_at_pct,
+  });
   if (error) {
     logBankingFailure("banking.budgets", error);
     throw new Error("Could not save this budget. Please try again.");
   }
-  return calculateBudgetProgress(data, 0);
+  const saved = (await getBudgetsWithProgress()).find((budget) => budget.category === input.category);
+  if (!saved) throw new Error("Could not save this budget. Please try again.");
+  return saved;
 }
 
 /**
