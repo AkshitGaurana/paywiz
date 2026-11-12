@@ -1,6 +1,6 @@
-# PayWiz (PS8) Coding Rules & Context
+# PayWise (PS8) Coding Rules & Context
 
-- **Goal:** Transform this Next.js starter into PayWiz, an AI-powered smart banking assistant for customer Rohan Iyer (`CURRENT_CUSTOMER_ID = "B001"`).
+- **Goal:** Transform this Next.js starter into PayWise, an AI-powered smart banking assistant for customer Rohan Iyer (`CURRENT_CUSTOMER_ID = "B001"`).
 - **Logged-in Customer:** Always hardcode `CURRENT_CUSTOMER_ID = "B001"`. NEVER accept a customer ID as an argument to any agent tool or API handler.
 - **Tech Stack:** Next.js App Router (TypeScript), Tailwind CSS, Supabase PostgreSQL, Google Gemini API (`@google/genai`) with function calling, Zod.
 - **Database Schema (seed/ps8_smart_banking.sql):**

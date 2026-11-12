@@ -171,6 +171,13 @@ begin
     raise exception 'Customer % not found', p_customer_id;
   end if;
 
+  if p_category is null or p_category not in (
+    'food', 'groceries', 'shopping', 'travel', 'bills', 'rent',
+    'entertainment', 'health', 'education', 'salary', 'transfer', 'other'
+  ) then
+    raise exception 'Invalid category %. Allowed categories are: food, groceries, shopping, travel, bills, rent, entertainment, health, education, salary, transfer, other', p_category;
+  end if;
+
   if p_monthly_limit is null or p_monthly_limit <= 0 then
     raise exception 'Monthly budget limit must be greater than Rs 0';
   end if;

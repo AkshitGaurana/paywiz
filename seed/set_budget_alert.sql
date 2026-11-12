@@ -1,7 +1,11 @@
 -- =====================================================================
 -- Migration: set_budget_alert PostgreSQL function
--- PayWiz (PS8) — Smart Banking Assistant
+-- PayWise (PS8) — Smart Banking Assistant
 -- Run this in Supabase -> SQL Editor.
+--
+-- Note: This is an optional standalone migration for databases that
+-- already have the PS8 tables created. If you are setting up a fresh
+-- database, run seed/ps8_smart_banking.sql which already includes this function.
 -- =====================================================================
 
 create or replace function set_budget_alert(
@@ -17,6 +21,13 @@ begin
   select * into c from customers where id = p_customer_id;
   if not found then
     raise exception 'Customer % not found', p_customer_id;
+  end if;
+
+  if p_category is null or p_category not in (
+    'food', 'groceries', 'shopping', 'travel', 'bills', 'rent',
+    'entertainment', 'health', 'education', 'salary', 'transfer', 'other'
+  ) then
+    raise exception 'Invalid category %. Allowed categories are: food, groceries, shopping, travel, bills, rent, entertainment, health, education, salary, transfer, other', p_category;
   end if;
 
   if p_monthly_limit is null or p_monthly_limit <= 0 then

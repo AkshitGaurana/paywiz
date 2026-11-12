@@ -6,7 +6,7 @@ import { CURRENT_CUSTOMER_ID, BANKING_CATEGORIES } from "../banking";
 import { startOfCurrentMonthInIndia } from "../dates";
 
 /*
- * PS8 PayWiz Banking Agent Tools
+ * PS8 PayWise Banking Agent Tools
  *
  * READ TOOLS (H3):
  * 1. getMyAccounts   - Account balances and statuses for customer B001

@@ -1,7 +1,7 @@
-# PayWiz (PS8) — AI Assistant & Project Rules
+# PayWise (PS8) — AI Assistant & Project Rules
 
 ## 1. Project Overview
-- **Project:** PayWiz — Smart Banking Assistant
+- **Project:** PayWise — Smart Banking Assistant
 - **Team:** 16 | **Problem Statement:** PS8 (Fintech / Banking)
 - **Demo Customer:** Always logged in as `CURRENT_CUSTOMER_ID = "B001"` (Rohan Iyer, Chennai, KYC: Full).
 - **Core Goal:** Conversational AI banking assistant where Google Gemini autonomously selects tools via Function Calling to retrieve banking data (balances, transactions, spend analysis, budgets) and execute account transfers and budget updates via Supabase RPC functions.

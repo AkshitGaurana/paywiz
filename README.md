@@ -28,6 +28,23 @@ This is the starting point for every team. It already has the setup done, so you
 
 To check your settings, open `/api/health`. It shows which variables are missing (never their values).
 
+## PS8 Database Setup
+
+PayWise uses Supabase PostgreSQL for the PS8 Smart Banking Assistant. Choose the setup path that matches your database state:
+
+### Path A: Fresh Database Setup
+Run the SQL files in this exact order from the Supabase **SQL Editor**:
+1. `seed/00_starter_example.sql` — Creates the starter `tasks` table used by the template's example tools and health checks.
+2. `seed/ps8_smart_banking.sql` — Creates and seeds all PS8 banking tables (`customers`, `accounts`, `transfer_limits`, `transactions`, `budgets`), and defines both database functions: `transfer_funds()` and `set_budget_alert()`.
+
+*Note: You do not need to run any extra SQL after running `seed/ps8_smart_banking.sql`.*
+
+### Path B: Existing PS8 Database Migration
+If your Supabase project already has the PS8 tables created from an earlier seed run and is only missing the budget RPC function:
+- Run `seed/set_budget_alert.sql` — Standalone migration that adds the `set_budget_alert()` PostgreSQL function and grants permissions without dropping or modifying existing data.
+
+Do not run both SQL definitions after a fresh setup.
+
 ## Folder guide
 
 ```
