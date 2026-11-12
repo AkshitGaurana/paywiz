@@ -9,6 +9,9 @@ export async function GET() {
   const names = ["GEMINI_API_KEY", "SUPABASE_URL", "SUPABASE_SECRET_KEY", "APP_PASSCODE"];
   const settings = Object.fromEntries(names.map((n) => [n, Boolean(process.env[n]?.trim())]));
   const settingsOk = Object.values(settings).every(Boolean);
+  const supabaseConfigured =
+    Boolean(process.env.SUPABASE_URL?.trim()) &&
+    Boolean(process.env.SUPABASE_SECRET_KEY?.trim());
 
   let database: {
     ok: boolean;
@@ -16,7 +19,7 @@ export async function GET() {
     demoCustomerB001: boolean;
   };
 
-  if (!settingsOk) {
+  if (!supabaseConfigured) {
     database = {
       ok: false,
       status: "not_configured",
