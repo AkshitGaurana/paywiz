@@ -54,7 +54,7 @@ export default function AgentChat({ onDataChanged }: { onDataChanged?: () => voi
   return (
     <div className="flex h-[70vh] flex-col rounded-xl border border-slate-200 bg-white">
       <div className="border-b border-slate-200 px-4 py-3">
-        <h2 className="font-semibold">Agent</h2>
+        <h2 className="font-semibold">PayWise Assistant</h2>
         <p className="text-xs text-slate-500">Ask in plain English. You can see every tool the agent uses.</p>
       </div>
 

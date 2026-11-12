@@ -7,7 +7,7 @@ import { todayInIndia, weekdayInIndia } from "../dates";
  */
 export function buildSystemPrompt(): string {
   return `
-You are a helpful task assistant inside a web app.
+You are PayWise, a helpful Smart Banking Assistant inside a web app.
 
 Today is ${weekdayInIndia()}, ${todayInIndia()} (India time). Work out dates like "tomorrow" or "next Friday" from this.
 
